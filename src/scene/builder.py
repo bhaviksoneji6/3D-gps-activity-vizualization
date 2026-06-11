@@ -50,56 +50,58 @@ def build_trail_segment(
     return trail
 
 
-def build_human_marker(position: Tuple[float, float, float]) -> pv.PolyData:
-    """Stick-figure human silhouette (replaces map-pin cone+sphere)."""
+def build_arrow_marker(
+    position: Tuple[float, float, float],
+    direction: np.ndarray,
+) -> pv.PolyData:
+    """
+    Google Maps-style chevron arrow: flat triangle with a V-notch at the tail,
+    extruded slightly for 3D depth, oriented to the direction of travel.
+    """
     pos = np.array(position, dtype=float)
-    pos[2] += 15.0
+    pos[2] += 12.0
 
-    s = 12.0  # scale unit — overall figure height ≈ 72 m, similar visual weight to old pin
+    fwd = np.array(direction, dtype=float)
+    fwd[2] = 0.0
+    norm = np.linalg.norm(fwd)
+    fwd   = fwd / norm if norm > 1e-6 else np.array([1.0, 0.0, 0.0])
+    right = np.array([-fwd[1], fwd[0], 0.0])   # 90° left of fwd in XY
+    z_up  = np.array([0.0, 0.0, 1.0])
 
-    head = pv.Sphere(radius=s, center=pos + [0.0, 0.0, 5.0 * s])
+    size  = 40.0              # overall size in metres
+    thick = size * 0.07       # extrusion height
 
-    torso = pv.Cylinder(
-        center=pos + [0.0, 0.0, 3.1 * s],
-        direction=[0.0, 0.0, 1.0],
-        radius=0.45 * s,
-        height=2.5 * s,
-        resolution=8,
-    )
+    # Six vertices in local (right, fwd) space, matching Google Maps chevron
+    shape = np.array([
+        ( 0.00,  1.00),   # 0: tip
+        ( 0.50,  0.22),   # 1: right shoulder
+        ( 0.24, -0.62),   # 2: right leg tip
+        ( 0.00, -0.18),   # 3: center notch (concave)
+        (-0.24, -0.62),   # 4: left leg tip
+        (-0.50,  0.22),   # 5: left shoulder
+    ])
 
-    # Arms angled slightly upward from the shoulder
-    arm_l = pv.Cylinder(
-        center=pos + [-1.3 * s, 0.0, 3.7 * s],
-        direction=[1.0, 0.0, 0.4],
-        radius=0.28 * s,
-        height=2.0 * s,
-        resolution=6,
-    )
-    arm_r = pv.Cylinder(
-        center=pos + [1.3 * s, 0.0, 3.7 * s],
-        direction=[-1.0, 0.0, 0.4],
-        radius=0.28 * s,
-        height=2.0 * s,
-        resolution=6,
-    )
+    bot = np.array([pos + v[0] * right * size + v[1] * fwd * size for v in shape])
+    top = bot + z_up * thick
+    pts = np.vstack([bot, top])   # (12, 3)
 
-    # Legs angled slightly apart
-    leg_l = pv.Cylinder(
-        center=pos + [-0.55 * s, 0.0, 1.1 * s],
-        direction=[-0.2, 0.0, 1.0],
-        radius=0.32 * s,
-        height=2.5 * s,
-        resolution=6,
-    )
-    leg_r = pv.Cylinder(
-        center=pos + [0.55 * s, 0.0, 1.1 * s],
-        direction=[0.2, 0.0, 1.0],
-        radius=0.32 * s,
-        height=2.5 * s,
-        resolution=6,
-    )
+    n = len(shape)   # 6
 
-    return head.merge(torso).merge(arm_l).merge(arm_r).merge(leg_l).merge(leg_r)
+    # Triangulate the concave hexagon (bottom face, top face, sides)
+    b_tris = [[0, 1, 5], [1, 3, 5], [1, 2, 3], [5, 3, 4]]
+    t_tris = [[a + n, c + n, b_ + n] for a, b_, c in b_tris]   # reversed winding
+    s_tris = []
+    for i in range(n):
+        j = (i + 1) % n
+        s_tris += [[i, j, j + n], [i, j + n, i + n]]
+
+    faces = np.array(
+        [[3, a, b_, c] for a, b_, c in b_tris + t_tris + s_tris]
+    ).ravel()
+
+    mesh = pv.PolyData(pts, faces)
+    mesh.compute_normals(auto_orient_normals=True, inplace=True)
+    return mesh
 
 
 def build_end_marker(

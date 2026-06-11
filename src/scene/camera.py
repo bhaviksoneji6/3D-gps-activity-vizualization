@@ -1,6 +1,6 @@
 import math
 import numpy as np
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Callable
 
 
 def resample_track(
@@ -36,10 +36,7 @@ def _smooth_camera_frames(
     frames: List[Tuple[Tuple, Tuple, Tuple]],
     window: int,
 ) -> List[Tuple[Tuple, Tuple, Tuple]]:
-    """
-    Moving-average smooth over camera positions and focal points.
-    Edge-padded so start/end don't drift toward zero.
-    """
+    """Moving-average smooth over camera positions and focal points (edge-padded)."""
     if window < 2 or len(frames) < window:
         return frames
 
@@ -50,7 +47,6 @@ def _smooth_camera_frames(
     half   = window // 2
     kernel = np.ones(window) / window
 
-    # Pad edges with replicated boundary values before convolving
     cams_pad   = np.pad(cams,   ((half, half), (0, 0)), mode="edge")
     focals_pad = np.pad(focals, ((half, half), (0, 0)), mode="edge")
 
@@ -65,26 +61,133 @@ def _smooth_camera_frames(
     return [(tuple(cams_s[i]), tuple(focals_s[i]), ups[i]) for i in range(n)]
 
 
+def _apply_terrain_floor(
+    frames: List[Tuple[Tuple, Tuple, Tuple]],
+    terrain_sampler: Callable,
+    origin_lat: float,
+    origin_lon: float,
+    elevation_scale: float,
+    clearance: float,
+    look_ahead: int = 30,
+    n_ridge_samples: int = 8,
+) -> List[Tuple[Tuple, Tuple, Tuple]]:
+    """
+    Lift camera positions so the camera is always above terrain and maintains
+    line-of-sight to the focal point.
+
+    For each frame, samples terrain height along the sight line to the focal
+    point and also for the next look_ahead frames (predictive lift so ridges
+    are cleared smoothly before they enter the line of sight).
+    """
+    R = 6_371_000
+    cos_lat = math.cos(math.radians(origin_lat))
+
+    def xy_to_elev(x, y):
+        lat = origin_lat + math.degrees(y / R)
+        lon = origin_lon + math.degrees(x / (R * cos_lat))
+        return terrain_sampler(lat, lon) * elevation_scale
+
+    n = len(frames)
+
+    # Pass 1: compute max terrain+clearance along each frame's sight line
+    required = np.zeros(n)
+    ts = np.linspace(0.0, 1.0, n_ridge_samples)
+
+    for i, (cam_t, foc_t, _) in enumerate(frames):
+        cam = np.array(cam_t)
+        foc = np.array(foc_t)
+        max_t = 0.0
+        for t in ts:
+            x = cam[0] * (1 - t) + foc[0] * t
+            y = cam[1] * (1 - t) + foc[1] * t
+            max_t = max(max_t, xy_to_elev(x, y))
+        required[i] = max_t + clearance
+
+    # Pass 2: look-ahead max — camera must satisfy the requirement of upcoming frames
+    required_la = np.array([
+        required[i:min(i + look_ahead, n)].max()
+        for i in range(n)
+    ])
+
+    # Pass 3: apply floor — only lift, never lower
+    result = list(frames)
+    for i, (cam_t, foc_t, up) in enumerate(frames):
+        cam = np.array(cam_t)
+        if cam[2] < required_la[i]:
+            cam[2] = required_la[i]
+            result[i] = (tuple(cam), foc_t, up)
+
+    return result
+
+
+def _build_outro_frames(
+    coords: List[Tuple[float, float, float]],
+    last_frame: Tuple[Tuple, Tuple, Tuple],
+    n_flyout: int = 120,
+    n_hold: int = 60,
+) -> List[Tuple[Tuple, Tuple, Tuple]]:
+    """
+    Pan-out sequence appended after the main animation.
+    Camera eases from its final chase position to a bird's-eye overview
+    showing the entire route, then holds.
+    """
+    pts = np.array(coords, dtype=float)
+
+    x_min, y_min = pts[:, :2].min(axis=0)
+    x_max, y_max = pts[:, :2].max(axis=0)
+    z_max = float(pts[:, 2].max())
+
+    cx = (x_min + x_max) / 2.0
+    cy = (y_min + y_max) / 2.0
+    extent = max(x_max - x_min, y_max - y_min)
+
+    # Height to fit full route in 45° FOV with some margin
+    overview_z = z_max + extent * 1.5
+    overview_cam   = np.array([cx, cy, overview_z])
+    overview_focal = np.array([cx, cy, z_max])
+
+    last_cam   = np.array(last_frame[0])
+    last_focal = np.array(last_frame[1])
+
+    frames = []
+    for i in range(n_flyout):
+        t = i / max(1, n_flyout - 1)
+        ease = 3 * t ** 2 - 2 * t ** 3  # smoothstep
+        cam   = last_cam   + (overview_cam   - last_cam)   * ease
+        focal = last_focal + (overview_focal - last_focal) * ease
+        frames.append((tuple(cam), tuple(focal), (0, 0, 1)))
+
+    frames += [(tuple(overview_cam), tuple(overview_focal), (0, 0, 1))] * n_hold
+    return frames
+
+
 def chase_camera_frames(
     coords: List[Tuple[float, float, float]],
     back_offset: Optional[float] = None,
     up_offset: Optional[float] = None,
     orbit_sweep_deg: float = 180.0,
+    terrain_sampler: Optional[Callable] = None,
+    origin_lat: float = 0.0,
+    origin_lon: float = 0.0,
+    elevation_scale: float = 1.2,
 ) -> List[Tuple[Tuple, Tuple, Tuple]]:
     """
-    Elevated chase camera for cinematic mode.
-    Sweeps orbit_sweep_deg around the head over the full route using a
-    sine ease-in/out so the sweep accelerates through the middle and slows
-    at both ends.  Camera positions are post-smoothed to eliminate turnaround
-    jerk.  A brief zoom-out at the start pulls back then eases in.
+    Elevated cinematic chase camera.
+
+    Sweeps orbit_sweep_deg with a sine ease-in/out. Opening zoom-in over
+    first 60 frames. Post-smoothed with a 41-frame moving average.
+
+    When terrain_sampler is provided, camera is lifted adaptively to stay
+    above terrain and maintain line-of-sight to the subject (ridge check
+    with 30-frame look-ahead). Outro pan-out appended at the end.
     """
     pts = np.array(coords, dtype=float)
     xy_extent = float(np.max(pts[:, :2].max(axis=0) - pts[:, :2].min(axis=0)))
 
     if back_offset is None:
-        back_offset = float(np.clip(xy_extent * 0.20, 100.0, 600.0))
+        back_offset = float(np.clip(xy_extent * 0.40, 200.0, 1200.0))
     if up_offset is None:
-        up_offset = float(np.clip(xy_extent * 0.22, 150.0, 600.0))
+        up_offset = float(np.clip(xy_extent * 0.44, 300.0, 1200.0))
     look_ahead = back_offset * 0.30
 
     smooth_w   = max(10, len(pts) // 15)
@@ -92,15 +195,12 @@ def chase_camera_frames(
 
     n          = len(pts)
     half_sweep = math.radians(orbit_sweep_deg / 2)
-
-    # How many frames to use for the opening zoom-in
     zoom_frames = min(60, n // 8)
 
     frames = []
     for i, pt in enumerate(pts):
         fwd = directions[i]
 
-        # Sine ease-in/out for the orbit sweep: slow at both ends, fastest in the middle
         t_linear = i / max(1, n - 1)
         t_eased  = 0.5 * (1.0 - math.cos(math.pi * t_linear))
         sweep    = -half_sweep + math.radians(orbit_sweep_deg) * t_eased
@@ -110,9 +210,8 @@ def chase_camera_frames(
         back_y = -fwd[0] * sin_s - fwd[1] * cos_s
         swept_back = np.array([back_x, back_y, 0.0])
 
-        # Opening zoom-in: camera starts pulled back 1.6× and eases to 1.0×
         if i < zoom_frames:
-            ease_in = 3 * (i / zoom_frames) ** 2 - 2 * (i / zoom_frames) ** 3  # smoothstep
+            ease_in = 3 * (i / zoom_frames) ** 2 - 2 * (i / zoom_frames) ** 3
             zoom    = 1.6 - 0.6 * ease_in
         else:
             zoom = 1.0
@@ -121,8 +220,20 @@ def chase_camera_frames(
         focal = pt + fwd * look_ahead
         frames.append((tuple(cam), tuple(focal), (0, 0, 1)))
 
-    # Smooth camera positions to eliminate jerk at direction reversals
+    # Adaptive terrain floor + ridge check
+    if terrain_sampler is not None:
+        elev_range = float(pts[:, 2].max() - pts[:, 2].min()) / elevation_scale
+        clearance  = max(80.0, elev_range * 0.15) * elevation_scale
+        frames = _apply_terrain_floor(
+            frames, terrain_sampler,
+            origin_lat, origin_lon, elevation_scale,
+            clearance=clearance,
+        )
+
     frames = _smooth_camera_frames(frames, window=41)
+
+    # Outro pan-out
+    frames += _build_outro_frames(coords, frames[-1])
     return frames
 
 
@@ -133,15 +244,16 @@ def first_person_frames(
 ) -> List[Tuple[Tuple, Tuple, Tuple]]:
     """
     Close chase camera for first-person mode.
-    Slightly higher than v1.0 to reduce ground-skimming perspective.
+    3× higher than v1.1 for a less ground-skimming perspective.
+    Outro pan-out appended at the end.
     """
     pts = np.array(coords, dtype=float)
     xy_extent = float(np.max(pts[:, :2].max(axis=0) - pts[:, :2].min(axis=0)))
 
     if back_offset is None:
-        back_offset = float(np.clip(xy_extent * 0.04, 20.0, 120.0))
+        back_offset = float(np.clip(xy_extent * 0.06, 30.0, 180.0))
     if up_offset is None:
-        up_offset = float(np.clip(xy_extent * 0.04, 25.0, 120.0))
+        up_offset = float(np.clip(xy_extent * 0.12, 75.0, 360.0))
     look_ahead = back_offset * 0.5
 
     smooth_w   = max(10, len(pts) // 15)
@@ -154,6 +266,8 @@ def first_person_frames(
         focal = pt + fwd * look_ahead
         frames.append((tuple(cam), tuple(focal), (0, 0, 1)))
 
-    # Light smoothing to remove GPS jitter
     frames = _smooth_camera_frames(frames, window=21)
+
+    # Outro pan-out
+    frames += _build_outro_frames(coords, frames[-1])
     return frames
