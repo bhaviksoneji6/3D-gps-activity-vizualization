@@ -1,0 +1,8 @@
+pyvista[all]
+numpy
+requests
+python-dotenv
+imageio
+imageio-ffmpeg
+Pillow
+scipy

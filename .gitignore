@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Environment — add your own API keys here, never commit this
+.env
+
+# Personal GPX activity files
+activity-gpx-inputs/
+
+# Internal notes
+context-window.md
+
+# Output videos
+output/*.mp4
+output/*.avi
+output/*.mov
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
