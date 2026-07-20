@@ -68,7 +68,7 @@ def _apply_terrain_floor(
     origin_lon: float,
     elevation_scale: float,
     clearance: float,
-    look_ahead: int = 30,
+    look_ahead: int = 60,
     n_ridge_samples: int = 8,
 ) -> List[Tuple[Tuple, Tuple, Tuple]]:
     """
@@ -214,18 +214,20 @@ def chase_camera_frames(
 
     chase_scale, fit_scale = _aspect_factors(frame_aspect)
 
+    # v1.3: 2× farther than v1.2 for a wider view (also clears more ridges)
     if back_offset is None:
-        back_offset = float(np.clip(xy_extent * 0.40, 200.0, 1200.0)) * chase_scale
+        back_offset = float(np.clip(xy_extent * 0.40, 200.0, 1200.0)) * chase_scale * 2.0
     if up_offset is None:
-        up_offset = float(np.clip(xy_extent * 0.44, 300.0, 1200.0)) * chase_scale
-    look_ahead = back_offset * 0.30
+        up_offset = float(np.clip(xy_extent * 0.44, 300.0, 1200.0)) * chase_scale * 2.0
+    # Aim closer to the marker in narrow frames so the arrow stays on screen
+    look_ahead = back_offset * 0.30 / fit_scale
 
     smooth_w   = max(10, len(pts) // 15)
     directions = _smooth_directions(pts, smooth_w)
 
     n          = len(pts)
     half_sweep = math.radians(orbit_sweep_deg / 2)
-    zoom_frames = min(60, n // 8)
+    zoom_frames = min(120, n // 8)
 
     frames = []
     for i, pt in enumerate(pts):
@@ -260,7 +262,7 @@ def chase_camera_frames(
             clearance=clearance,
         )
 
-    frames = _smooth_camera_frames(frames, window=41)
+    frames = _smooth_camera_frames(frames, window=81)
 
     # Outro pan-out
     frames += _build_outro_frames(coords, frames[-1], fit_scale=fit_scale)
@@ -283,11 +285,13 @@ def first_person_frames(
 
     chase_scale, fit_scale = _aspect_factors(frame_aspect)
 
+    # v1.3: 3× farther than v1.2 — the old camera was nearly ground-skimming
     if back_offset is None:
-        back_offset = float(np.clip(xy_extent * 0.06, 30.0, 180.0)) * chase_scale
+        back_offset = float(np.clip(xy_extent * 0.06, 30.0, 180.0)) * chase_scale * 3.0
     if up_offset is None:
-        up_offset = float(np.clip(xy_extent * 0.12, 75.0, 360.0)) * chase_scale
-    look_ahead = back_offset * 0.5
+        up_offset = float(np.clip(xy_extent * 0.12, 75.0, 360.0)) * chase_scale * 3.0
+    # Aim closer to the marker in narrow frames so the arrow stays on screen
+    look_ahead = back_offset * 0.5 / fit_scale
 
     smooth_w   = max(10, len(pts) // 15)
     directions = _smooth_directions(pts, smooth_w)
@@ -299,7 +303,7 @@ def first_person_frames(
         focal = pt + fwd * look_ahead
         frames.append((tuple(cam), tuple(focal), (0, 0, 1)))
 
-    frames = _smooth_camera_frames(frames, window=21)
+    frames = _smooth_camera_frames(frames, window=41)
 
     # Outro pan-out
     frames += _build_outro_frames(coords, frames[-1], fit_scale=fit_scale)

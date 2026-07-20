@@ -72,17 +72,18 @@ The pipeline then runs in the terminal with step-by-step progress and a render E
 ## Output
 
 H.264 MP4 (CRF 23, `yuv420p`, faststart — plays everywhere, streams well),
-30 fps, ~36 s long, saved to `output/` as `visualization_<timestamp>.mp4`.
+30 fps, ~66 s long (60 s route animation + pan-out outro), saved to `output/`
+as `visualization_<timestamp>.mp4`.
 
 Typical file sizes (varies with route scenery):
 
 | Resolution | 16:9 / 9:16 | 1:1 |
 |-----------|-------------|-----|
-| 1080p | ~55–110 MB | ~40–75 MB |
-| 720p | ~30–65 MB | ~20–40 MB |
-| 480p | ~15–35 MB | ~10–20 MB |
-| 360p | ~10–20 MB | ~7–14 MB |
-| 240p | ~6–11 MB | ~4–7 MB |
+| 1080p | ~100–200 MB | ~70–135 MB |
+| 720p | ~55–115 MB | ~40–75 MB |
+| 480p | ~30–65 MB | ~20–40 MB |
+| 360p | ~20–40 MB | ~13–25 MB |
+| 240p | ~10–20 MB | ~6–13 MB |
 
 ## Data Sources
 

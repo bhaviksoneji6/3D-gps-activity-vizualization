@@ -33,7 +33,7 @@ RESOLUTIONS = [
 ]
 
 FPS      = 30
-N_FRAMES = 900 + 180        # main animation + pan-out outro (fixed regardless of GPX)
+N_FRAMES = 1800 + 180       # main animation + pan-out outro (fixed regardless of GPX)
 
 # Measured from CRF 23 test renders: (pixels per frame, bits per pixel).
 # H.264 gets more efficient per pixel at higher resolutions, so bpp is
@@ -59,7 +59,7 @@ def video_dimensions(aspect: str, short: int, long: int):
 
 
 def estimate_mb(w: int, h: int):
-    """Estimated output size range in MB for the fixed ~36 s video."""
+    """Estimated output size range in MB for the fixed ~66 s video."""
     mb = w * h * N_FRAMES * _bits_per_pixel(w * h) / 8 / 1e6
     return mb * 0.7, mb * 1.4
 
@@ -172,7 +172,7 @@ def main():
         res_options.append((f"{tier}  ({w}×{h})", est))
 
     r_idx = ask_choice(root, "Resolution",
-                       "Which resolution?\n(estimated file size for a ~36 s video)",
+                       "Which resolution?\n(estimated file size for a ~66 s video)",
                        res_options)
     if r_idx is None:
         print("Cancelled. Exiting.")

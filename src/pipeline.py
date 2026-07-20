@@ -84,7 +84,7 @@ def run(config: dict, queue):
 
         # ── step 3: camera path ────────────────────────────────────────────────
         queue.put(("step", 3))
-        N_POINTS  = 900
+        N_POINTS  = 1800   # 60 s main animation at 30 fps (v1.3: half-speed playback)
         resampled = resample_track(coords, n_points=N_POINTS)
 
         if camera_mode == "cinematic":
