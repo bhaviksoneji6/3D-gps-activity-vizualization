@@ -53,7 +53,7 @@ def _draw_hud(frame_np: np.ndarray, idx: int, hud: Dict) -> np.ndarray:
     """Composite the full stats panel onto the bottom-left of the frame."""
     img = Image.fromarray(frame_np)
     W, H = img.size
-    sc   = W / 1920.0  # scale factor relative to 1080p
+    sc   = min(W, H) / 1080.0  # scale off the short side so portrait/square frames match 16:9 sizing
 
     def px(n): return int(n * sc)
 
@@ -118,7 +118,7 @@ def _draw_hud(frame_np: np.ndarray, idx: int, hud: Dict) -> np.ndarray:
                  (hx + bs, hy + bs * 2), (hx, hy + bs)]
     d.polygon(badge_pts, fill=CYAN)
     d.text((hx + px(22), hy + px(1)), "GPS 3D VIZ", font=f_header, fill=WHITE)
-    d.text((px1 - px(52), hy + px(1)), "v 1.2", font=f_header, fill=DIM)
+    d.text((px1 - px(52), hy + px(1)), "v 1.3", font=f_header, fill=DIM)
 
     # ── elapsed time ──────────────────────────────────────────────────────────
     ey = py + head_h + px(6)
@@ -186,7 +186,7 @@ def _draw_hud(frame_np: np.ndarray, idx: int, hud: Dict) -> np.ndarray:
 def _draw_watermark(img: Image.Image) -> Image.Image:
     """Subtle italic 'BS ◈' signature in the bottom-right corner."""
     W, H = img.size
-    sc   = W / 1920.0
+    sc   = min(W, H) / 1080.0
 
     f_wm  = _load_font(int(22 * sc), italic=True)
     text  = "BS ◈"
@@ -237,7 +237,14 @@ def render_video(
     n_total = len(camera_frames)
 
     try:
-        writer = imageio.get_writer(output_path, fps=fps, quality=8)
+        writer = imageio.get_writer(
+            output_path, fps=fps,
+            codec="libx264",
+            quality=None,               # disable imageio's bitrate control; CRF below drives quality
+            pixelformat="yuv420p",      # required for QuickTime/iOS/social platform playback
+            macro_block_size=1,         # keep exact dimensions; all supported sizes are even
+            output_params=["-crf", "23", "-preset", "slow", "-movflags", "+faststart"],
+        )
     except Exception:
         writer = imageio.get_writer(output_path, fps=fps)
 

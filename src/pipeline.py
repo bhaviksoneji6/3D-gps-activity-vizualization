@@ -29,7 +29,10 @@ def run(config: dict, queue):
         gpx_path    = config["gpx_path"]
         camera_mode = config["camera_mode"]
         video_path  = config["video_path"]
+        width       = config.get("width", 1920)
+        height      = config.get("height", 1080)
 
+        frame_aspect    = width / height
         ELEVATION_SCALE = 1.2
 
         # ── step 0: parse GPX ──────────────────────────────────────────────────
@@ -91,9 +94,10 @@ def run(config: dict, queue):
                 origin_lat=origin_lat,
                 origin_lon=origin_lon,
                 elevation_scale=ELEVATION_SCALE,
+                frame_aspect=frame_aspect,
             )
         else:
-            frames = first_person_frames(resampled)
+            frames = first_person_frames(resampled, frame_aspect=frame_aspect)
 
         # ── HUD metadata ───────────────────────────────────────────────────────
         seg_dists = [0.0]
@@ -157,7 +161,8 @@ def run(config: dict, queue):
         ghost_track = build_ghost_track(resampled)
         end_marker  = build_end_marker(resampled)
         plotter     = assemble_scene_video(terrain_mesh, satellite_texture,
-                                           ghost_track, end_marker)
+                                           ghost_track, end_marker,
+                                           window_size=(width, height))
 
         # ── step 6: render ─────────────────────────────────────────────────────
         queue.put(("step", 6))

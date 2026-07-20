@@ -125,6 +125,7 @@ def _build_outro_frames(
     last_frame: Tuple[Tuple, Tuple, Tuple],
     n_flyout: int = 120,
     n_hold: int = 60,
+    fit_scale: float = 1.0,
 ) -> List[Tuple[Tuple, Tuple, Tuple]]:
     """
     Pan-out sequence appended after the main animation.
@@ -141,13 +142,20 @@ def _build_outro_frames(
     cy = (y_min + y_max) / 2.0
     extent = max(x_max - x_min, y_max - y_min)
 
-    # Height to fit full route in 45° FOV with some margin
-    overview_z = z_max + extent * 1.5
+    # Height to fit full route in 45° FOV with some margin.
+    # fit_scale > 1 for narrow frames (9:16, 1:1) whose horizontal FOV is smaller.
+    overview_z = z_max + extent * 1.5 * fit_scale
     overview_cam   = np.array([cx, cy, overview_z])
     overview_focal = np.array([cx, cy, z_max])
 
     last_cam   = np.array(last_frame[0])
     last_focal = np.array(last_frame[1])
+
+    # The overview looks straight down, where up=(0,0,1) is parallel to the view
+    # direction — a degenerate camera basis that renders black. Blend to a
+    # north-up vector as the camera tilts vertical.
+    up_start = np.array([0.0, 0.0, 1.0])
+    up_end   = np.array([0.0, 1.0, 0.0])
 
     frames = []
     for i in range(n_flyout):
@@ -155,10 +163,29 @@ def _build_outro_frames(
         ease = 3 * t ** 2 - 2 * t ** 3  # smoothstep
         cam   = last_cam   + (overview_cam   - last_cam)   * ease
         focal = last_focal + (overview_focal - last_focal) * ease
-        frames.append((tuple(cam), tuple(focal), (0, 0, 1)))
+        up    = up_start + (up_end - up_start) * ease
+        up    = up / np.linalg.norm(up)
+        frames.append((tuple(cam), tuple(focal), tuple(up)))
 
-    frames += [(tuple(overview_cam), tuple(overview_focal), (0, 0, 1))] * n_hold
+    frames += [(tuple(overview_cam), tuple(overview_focal), (0.0, 1.0, 0.0))] * n_hold
     return frames
+
+
+def _aspect_factors(frame_aspect: float) -> Tuple[float, float]:
+    """
+    Camera distance compensation for frames narrower than 16:9, whose
+    horizontal FOV is proportionally smaller.
+
+    chase_scale — sqrt compromise: pulls the chase camera back enough that the
+    route isn't constantly cropped, without making it feel distant.
+    fit_scale   — full geometric factor: the outro must fit the whole route
+    horizontally, so no compromise there.
+    """
+    wide = 16.0 / 9.0
+    ratio = wide / frame_aspect
+    chase_scale = max(1.0, math.sqrt(ratio))
+    fit_scale   = max(1.0, ratio)
+    return chase_scale, fit_scale
 
 
 def chase_camera_frames(
@@ -170,6 +197,7 @@ def chase_camera_frames(
     origin_lat: float = 0.0,
     origin_lon: float = 0.0,
     elevation_scale: float = 1.2,
+    frame_aspect: float = 16.0 / 9.0,
 ) -> List[Tuple[Tuple, Tuple, Tuple]]:
     """
     Elevated cinematic chase camera.
@@ -184,10 +212,12 @@ def chase_camera_frames(
     pts = np.array(coords, dtype=float)
     xy_extent = float(np.max(pts[:, :2].max(axis=0) - pts[:, :2].min(axis=0)))
 
+    chase_scale, fit_scale = _aspect_factors(frame_aspect)
+
     if back_offset is None:
-        back_offset = float(np.clip(xy_extent * 0.40, 200.0, 1200.0))
+        back_offset = float(np.clip(xy_extent * 0.40, 200.0, 1200.0)) * chase_scale
     if up_offset is None:
-        up_offset = float(np.clip(xy_extent * 0.44, 300.0, 1200.0))
+        up_offset = float(np.clip(xy_extent * 0.44, 300.0, 1200.0)) * chase_scale
     look_ahead = back_offset * 0.30
 
     smooth_w   = max(10, len(pts) // 15)
@@ -233,7 +263,7 @@ def chase_camera_frames(
     frames = _smooth_camera_frames(frames, window=41)
 
     # Outro pan-out
-    frames += _build_outro_frames(coords, frames[-1])
+    frames += _build_outro_frames(coords, frames[-1], fit_scale=fit_scale)
     return frames
 
 
@@ -241,6 +271,7 @@ def first_person_frames(
     coords: List[Tuple[float, float, float]],
     back_offset: Optional[float] = None,
     up_offset: Optional[float] = None,
+    frame_aspect: float = 16.0 / 9.0,
 ) -> List[Tuple[Tuple, Tuple, Tuple]]:
     """
     Close chase camera for first-person mode.
@@ -250,10 +281,12 @@ def first_person_frames(
     pts = np.array(coords, dtype=float)
     xy_extent = float(np.max(pts[:, :2].max(axis=0) - pts[:, :2].min(axis=0)))
 
+    chase_scale, fit_scale = _aspect_factors(frame_aspect)
+
     if back_offset is None:
-        back_offset = float(np.clip(xy_extent * 0.06, 30.0, 180.0))
+        back_offset = float(np.clip(xy_extent * 0.06, 30.0, 180.0)) * chase_scale
     if up_offset is None:
-        up_offset = float(np.clip(xy_extent * 0.12, 75.0, 360.0))
+        up_offset = float(np.clip(xy_extent * 0.12, 75.0, 360.0)) * chase_scale
     look_ahead = back_offset * 0.5
 
     smooth_w   = max(10, len(pts) // 15)
@@ -269,5 +302,5 @@ def first_person_frames(
     frames = _smooth_camera_frames(frames, window=21)
 
     # Outro pan-out
-    frames += _build_outro_frames(coords, frames[-1])
+    frames += _build_outro_frames(coords, frames[-1], fit_scale=fit_scale)
     return frames

@@ -17,6 +17,85 @@ STEPS = [
     "Rendering",
 ]
 
+ASPECTS = [
+    ("16:9",  "Landscape — YouTube, desktop"),
+    ("9:16",  "Vertical — Reels, Shorts, TikTok"),
+    ("1:1",   "Square — feed posts"),
+]
+
+# (tier label, short side, 16:9 long side)
+RESOLUTIONS = [
+    ("1080p", 1080, 1920),
+    ("720p",  720,  1280),
+    ("480p",  480,  854),
+    ("360p",  360,  640),
+    ("240p",  240,  426),
+]
+
+FPS      = 30
+N_FRAMES = 900 + 180        # main animation + pan-out outro (fixed regardless of GPX)
+
+# Measured from CRF 23 test renders: (pixels per frame, bits per pixel).
+# H.264 gets more efficient per pixel at higher resolutions, so bpp is
+# interpolated on log(pixels) between these calibration points.
+_CALIB = [(414_720, 0.442),      # 480p render
+          (2_073_600, 0.276)]    # 1080p render
+
+
+def _bits_per_pixel(pixels: int) -> float:
+    import math
+    (p0, b0), (p1, b1) = _CALIB
+    t = (math.log(pixels) - math.log(p0)) / (math.log(p1) - math.log(p0))
+    return b0 + (b1 - b0) * t
+
+
+def video_dimensions(aspect: str, short: int, long: int):
+    """Pixel dimensions for an aspect ratio and resolution tier (all values even)."""
+    if aspect == "16:9":
+        return long, short
+    if aspect == "9:16":
+        return short, long
+    return short, short
+
+
+def estimate_mb(w: int, h: int):
+    """Estimated output size range in MB for the fixed ~36 s video."""
+    mb = w * h * N_FRAMES * _bits_per_pixel(w * h) / 8 / 1e6
+    return mb * 0.7, mb * 1.4
+
+
+def ask_choice(root, title, question, options, default_idx=0):
+    """Blocking radio-list dialog. options is a list of (label, sublabel).
+    Returns the selected index, or None if closed."""
+    choice = [None]
+    d = tk.Toplevel(root)
+    d.title(title)
+    d.resizable(False, False)
+    d.grab_set()
+
+    tk.Label(d, text=question,
+             font=("Helvetica Neue", 13),
+             wraplength=360, justify="center",
+             padx=28, pady=18).pack()
+
+    var = tk.IntVar(value=default_idx)
+    box = tk.Frame(d)
+    box.pack(padx=32, anchor="w")
+
+    for i, (label, sublabel) in enumerate(options):
+        text = f"{label}   —   {sublabel}" if sublabel else label
+        tk.Radiobutton(box, text=text, variable=var, value=i,
+                       font=("Helvetica Neue", 12),
+                       anchor="w", justify="left").pack(fill="x", pady=2, anchor="w")
+
+    def ok():
+        choice[0] = var.get()
+        d.destroy()
+
+    tk.Button(d, text="Continue", width=18, command=ok).pack(pady=(16, 20))
+    root.wait_window(d)
+    return choice[0]
+
 
 def ask_two(root, title, question, btn_a, btn_b):
     """Blocking two-button modal dialog. Returns 'a' or 'b'."""
@@ -76,7 +155,33 @@ def main():
     camera_mode = "cinematic" if cam == "a" else "first_person"
     print(f"  ✓ Camera mode: {camera_mode}")
 
-    # ── 3. Save location ─────────────────────────────────────────────────────
+    # ── 3. Aspect ratio ──────────────────────────────────────────────────────
+    a_idx = ask_choice(root, "Aspect Ratio", "Which aspect ratio?", ASPECTS)
+    if a_idx is None:
+        print("Cancelled. Exiting.")
+        return
+    aspect = ASPECTS[a_idx][0]
+    print(f"  ✓ Aspect ratio: {aspect}")
+
+    # ── 4. Resolution (with size estimates) ──────────────────────────────────
+    res_options = []
+    for tier, short, long in RESOLUTIONS:
+        w, h = video_dimensions(aspect, short, long)
+        lo, hi = estimate_mb(w, h)
+        est = f"est. {lo:.0f}–{hi:.0f} MB" if lo >= 1 else "est. <1 MB"
+        res_options.append((f"{tier}  ({w}×{h})", est))
+
+    r_idx = ask_choice(root, "Resolution",
+                       "Which resolution?\n(estimated file size for a ~36 s video)",
+                       res_options)
+    if r_idx is None:
+        print("Cancelled. Exiting.")
+        return
+    tier, short, long = RESOLUTIONS[r_idx]
+    width, height = video_dimensions(aspect, short, long)
+    print(f"  ✓ Resolution: {tier} → {width}×{height}")
+
+    # ── 5. Save location ─────────────────────────────────────────────────────
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     default = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
@@ -98,7 +203,7 @@ def main():
 
     root.destroy()
 
-    # ── 4. Run pipeline ──────────────────────────────────────────────────────
+    # ── 6. Run pipeline ──────────────────────────────────────────────────────
     from src.pipeline import run as pipeline_run
 
     print("\n--- Starting pipeline ---\n")
@@ -106,7 +211,8 @@ def main():
     queue = mp.Queue()
     process = mp.Process(
         target=pipeline_run,
-        args=({"gpx_path": gpx, "camera_mode": camera_mode, "video_path": video_path}, queue),
+        args=({"gpx_path": gpx, "camera_mode": camera_mode, "video_path": video_path,
+               "width": width, "height": height}, queue),
         daemon=True,
     )
     process.start()

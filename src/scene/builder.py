@@ -118,8 +118,9 @@ def assemble_scene_video(
     satellite_texture: Optional[pv.Texture],
     ghost_track: pv.PolyData,
     end_marker: pv.PolyData,
+    window_size: Tuple[int, int] = (1920, 1080),
 ) -> pv.Plotter:
-    plotter = pv.Plotter(off_screen=True, window_size=(1920, 1080))
+    plotter = pv.Plotter(off_screen=True, window_size=window_size)
 
     if terrain_mesh is not None:
         if satellite_texture is not None:

@@ -38,7 +38,13 @@ You'll be prompted (native dialogs) for:
 2. **Camera mode**
    - **Cinematic** — elevated chase camera that adapts to terrain and sweeps around the route
    - **First-Person** — close follow camera from behind and above
-3. **Save location** — default `output/` folder, or pick your own
+3. **Aspect ratio** — 16:9 (YouTube/desktop), 9:16 (Reels/Shorts/TikTok), or 1:1 (feed posts)
+4. **Resolution** — 1080p / 720p / 480p / 360p / 240p, each shown with an
+   estimated output file size before you choose
+5. **Save location** — default `output/` folder, or pick your own
+
+The camera automatically pulls back further in 9:16 and 1:1 to keep the route
+framed, and the stats HUD scales to every aspect/resolution combination.
 
 The pipeline then runs in the terminal with step-by-step progress and a render ETA:
 
@@ -65,10 +71,18 @@ The pipeline then runs in the terminal with step-by-step progress and a render E
 
 ## Output
 
-1920×1080 MP4 at 30 fps, saved to `output/` as `visualization_<timestamp>.mp4`.
+H.264 MP4 (CRF 23, `yuv420p`, faststart — plays everywhere, streams well),
+30 fps, ~36 s long, saved to `output/` as `visualization_<timestamp>.mp4`.
 
-> ⚠️ Files are currently large (several hundred MB for a typical activity) —
-> compression presets are on the roadmap.
+Typical file sizes (varies with route scenery):
+
+| Resolution | 16:9 / 9:16 | 1:1 |
+|-----------|-------------|-----|
+| 1080p | ~55–110 MB | ~40–75 MB |
+| 720p | ~30–65 MB | ~20–40 MB |
+| 480p | ~15–35 MB | ~10–20 MB |
+| 360p | ~10–20 MB | ~7–14 MB |
+| 240p | ~6–11 MB | ~4–7 MB |
 
 ## Data Sources
 
@@ -90,7 +104,6 @@ src/renderer/         Frame-by-frame render loop, HUD and watermark compositing
 
 ## Roadmap
 
-- Compressed output presets (shareable file sizes) and aspect-ratio options (16:9 / 9:16 / 1:1)
 - Higher-resolution terrain and satellite imagery
 - Web service version
 - Seasonal / time-of-day lighting
