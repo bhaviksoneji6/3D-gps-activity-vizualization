@@ -3,21 +3,6 @@ import numpy as np
 from typing import List, Tuple, Optional, Callable
 
 
-def resample_track(
-    coords: List[Tuple[float, float, float]],
-    n_points: int = 900,
-) -> List[Tuple[float, float, float]]:
-    """Resample track to n_points uniformly spaced by cumulative arc length."""
-    pts = np.array(coords, dtype=float)
-    seg_len = np.linalg.norm(np.diff(pts, axis=0), axis=1)
-    cum = np.concatenate([[0.0], np.cumsum(seg_len)])
-    t = np.linspace(0.0, cum[-1], n_points)
-    x = np.interp(t, cum, pts[:, 0])
-    y = np.interp(t, cum, pts[:, 1])
-    z = np.interp(t, cum, pts[:, 2])
-    return [tuple(row) for row in np.column_stack([x, y, z])]
-
-
 def _smooth_directions(pts: np.ndarray, window: int) -> np.ndarray:
     """Forward direction at each point, smoothed over a window to remove GPS jitter."""
     n = len(pts)
@@ -227,7 +212,8 @@ def chase_camera_frames(
 
     n          = len(pts)
     half_sweep = math.radians(orbit_sweep_deg / 2)
-    zoom_frames = min(120, n // 8)
+    # Frame-count-relative so the opening zoom feels the same at any video length
+    zoom_frames = max(1, min(n // 8, round(n * 0.067)))
 
     frames = []
     for i, pt in enumerate(pts):
@@ -262,7 +248,7 @@ def chase_camera_frames(
             clearance=clearance,
         )
 
-    frames = _smooth_camera_frames(frames, window=81)
+    frames = _smooth_camera_frames(frames, window=max(5, round(len(frames) * 0.045)))
 
     # Outro pan-out
     frames += _build_outro_frames(coords, frames[-1], fit_scale=fit_scale)
@@ -303,7 +289,7 @@ def first_person_frames(
         focal = pt + fwd * look_ahead
         frames.append((tuple(cam), tuple(focal), (0, 0, 1)))
 
-    frames = _smooth_camera_frames(frames, window=41)
+    frames = _smooth_camera_frames(frames, window=max(5, round(len(frames) * 0.023)))
 
     # Outro pan-out
     frames += _build_outro_frames(coords, frames[-1], fit_scale=fit_scale)

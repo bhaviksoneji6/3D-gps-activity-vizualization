@@ -23,7 +23,9 @@ def run(config: dict, queue):
         from src.terrain.mesh import build_terrain_mesh
         from src.scene.builder import (build_ghost_track, build_end_marker,
                                         assemble_scene_video)
-        from src.scene.camera import resample_track, chase_camera_frames, first_person_frames
+        from src.scene.camera import chase_camera_frames, first_person_frames
+        from src.gpx.pacing import elapsed_seconds, sample_fractions, FPS, video_main_seconds
+        from src.gpx.pacing import activity_distance_miles, activity_duration_min
         from src.renderer.renderer import render_video
 
         gpx_path    = config["gpx_path"]
@@ -31,6 +33,7 @@ def run(config: dict, queue):
         video_path  = config["video_path"]
         width       = config.get("width", 1920)
         height      = config.get("height", 1080)
+        video_secs  = config.get("video_seconds")   # main-animation length; None → derive here
 
         frame_aspect    = width / height
         ELEVATION_SCALE = 1.2
@@ -82,24 +85,7 @@ def run(config: dict, queue):
             lon_grid.min(), lon_grid.max(),
         )
 
-        # ── step 3: camera path ────────────────────────────────────────────────
-        queue.put(("step", 3))
-        N_POINTS  = 1800   # 60 s main animation at 30 fps (v1.3: half-speed playback)
-        resampled = resample_track(coords, n_points=N_POINTS)
-
-        if camera_mode == "cinematic":
-            frames = chase_camera_frames(
-                resampled,
-                terrain_sampler=terrain_sampler,
-                origin_lat=origin_lat,
-                origin_lon=origin_lon,
-                elevation_scale=ELEVATION_SCALE,
-                frame_aspect=frame_aspect,
-            )
-        else:
-            frames = first_person_frames(resampled, frame_aspect=frame_aspect)
-
-        # ── HUD metadata ───────────────────────────────────────────────────────
+        # ── original-point HUD arrays (sampled onto frames below) ──────────────
         seg_dists = [0.0]
         for i in range(1, len(coords)):
             d = math.sqrt(sum((coords[i][k] - coords[i - 1][k]) ** 2 for k in range(3)))
@@ -107,16 +93,8 @@ def run(config: dict, queue):
         cum_dist_orig = np.cumsum(seg_dists)
         total_dist_m  = float(cum_dist_orig[-1])
 
-        def _parse_ts(ts_str):
-            from datetime import datetime
-            return datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-
-        timestamps = [p.timestamp for p in points]
-        if all(timestamps):
-            ts_objs        = [_parse_ts(t) for t in timestamps]
-            time_secs_orig = np.array(
-                [(t - ts_objs[0]).total_seconds() for t in ts_objs], dtype=float
-            )
+        time_secs_orig = elapsed_seconds(points)
+        if time_secs_orig is not None:
             dt         = np.diff(time_secs_orig)
             dt         = np.where(dt > 0, dt, 0.1)
             speeds_mps = np.concatenate([[0.0], np.array(seg_dists[1:]) / dt])
@@ -130,7 +108,41 @@ def run(config: dict, queue):
         for i in range(1, len(points)):
             ele_gain[i] = ele_gain[i - 1] + max(0.0, points[i].elevation - points[i - 1].elevation)
 
-        t_rs = np.linspace(0.0, total_dist_m, N_POINTS)
+        # ── step 3: camera path ────────────────────────────────────────────────
+        queue.put(("step", 3))
+
+        # Video length adapts to the activity; frames are spaced by elapsed time.
+        if video_secs is None:
+            video_secs = video_main_seconds(
+                activity_distance_miles(points), activity_duration_min(points))
+        N_POINTS = max(2, round(video_secs * FPS))
+
+        times = elapsed_seconds(points)                 # None → distance-based pacing
+        frac  = sample_fractions(coords, times, N_POINTS)
+
+        idx_axis  = np.arange(len(coords))
+        carr      = np.asarray(coords, dtype=float)
+        resampled = [tuple(row) for row in np.column_stack([
+            np.interp(frac, idx_axis, carr[:, 0]),
+            np.interp(frac, idx_axis, carr[:, 1]),
+            np.interp(frac, idx_axis, carr[:, 2]),
+        ])]
+
+        if camera_mode == "cinematic":
+            frames = chase_camera_frames(
+                resampled,
+                terrain_sampler=terrain_sampler,
+                origin_lat=origin_lat,
+                origin_lon=origin_lon,
+                elevation_scale=ELEVATION_SCALE,
+                frame_aspect=frame_aspect,
+            )
+        else:
+            frames = first_person_frames(resampled, frame_aspect=frame_aspect)
+
+        # ── HUD metadata (sample original arrays at the same frame positions) ──
+        def _sample(arr):
+            return np.interp(frac, idx_axis, arr)
 
         # n_total frames = N_POINTS main + outro extras
         n_outro = len(frames) - N_POINTS
@@ -141,11 +153,11 @@ def run(config: dict, queue):
         hud_data = {
             "_n_main":           N_POINTS,
             "total_dist_km":     total_dist_m / 1000.0,
-            "dist_covered_km":   _extend(t_rs / 1000.0),
-            "speed_kmh":         _extend(np.interp(t_rs, cum_dist_orig, speeds_mps) * 3.6),
-            "elevation_m":       _extend(np.interp(t_rs, cum_dist_orig, elevations_m)),
-            "elevation_gain_m":  _extend(np.interp(t_rs, cum_dist_orig, ele_gain)),
-            "elapsed_secs":      _extend(np.interp(t_rs, cum_dist_orig, time_secs_orig)),
+            "dist_covered_km":   _extend(_sample(cum_dist_orig) / 1000.0),
+            "speed_kmh":         _extend(_sample(speeds_mps) * 3.6),
+            "elevation_m":       _extend(_sample(elevations_m)),
+            "elevation_gain_m":  _extend(_sample(ele_gain)),
+            "elapsed_secs":      _extend(_sample(time_secs_orig)),
         }
 
         # ── step 4: terrain mesh ───────────────────────────────────────────────

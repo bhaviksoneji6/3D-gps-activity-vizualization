@@ -46,6 +46,16 @@ You'll be prompted (native dialogs) for:
 The camera automatically pulls back further in 9:16 and 1:1 to keep the route
 framed, and the stats HUD scales to every aspect/resolution combination.
 
+### Pacing
+
+Video length adapts to the activity — longer activities get proportionally
+less screen time per mile (roughly 30 s for a short run up to ~2.5 min for a
+marathon), plus a 6 s pan-out outro. Frames are spaced by **real elapsed time**,
+so slow climbs genuinely look slow and fast descents look fast; the HUD clock
+shows true elapsed time. Long stops (red lights, water breaks) are compressed
+so the video never sits frozen. GPX files without timestamps fall back to
+constant-speed, distance-based pacing.
+
 The pipeline then runs in the terminal with step-by-step progress and a render ETA:
 
 ```
@@ -72,18 +82,19 @@ The pipeline then runs in the terminal with step-by-step progress and a render E
 ## Output
 
 H.264 MP4 (CRF 23, `yuv420p`, faststart — plays everywhere, streams well),
-30 fps, ~66 s long (60 s route animation + pan-out outro), saved to `output/`
-as `visualization_<timestamp>.mp4`.
+30 fps, saved to `output/` as `visualization_<timestamp>.mp4`. Length depends
+on the activity (see [Pacing](#pacing)); the dialog shows a size estimate for
+your specific activity before you render.
 
-Typical file sizes (varies with route scenery):
+Typical file sizes per 60 s of video (varies with route scenery):
 
 | Resolution | 16:9 / 9:16 | 1:1 |
 |-----------|-------------|-----|
-| 1080p | ~100–200 MB | ~70–135 MB |
-| 720p | ~55–115 MB | ~40–75 MB |
-| 480p | ~30–65 MB | ~20–40 MB |
-| 360p | ~20–40 MB | ~13–25 MB |
-| 240p | ~10–20 MB | ~6–13 MB |
+| 1080p | ~90–180 MB | ~60–120 MB |
+| 720p | ~50–105 MB | ~35–70 MB |
+| 480p | ~28–58 MB | ~18–36 MB |
+| 360p | ~18–36 MB | ~12–22 MB |
+| 240p | ~9–18 MB | ~5–11 MB |
 
 ## Data Sources
 

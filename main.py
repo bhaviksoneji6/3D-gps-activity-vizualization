@@ -7,6 +7,10 @@ from tkinter import filedialog
 import multiprocessing as mp
 from datetime import datetime
 
+from src.gpx.parser import parse as parse_gpx
+from src.gpx.pacing import (FPS, OUTRO_SECONDS, video_main_seconds,
+                            activity_distance_miles, activity_duration_min)
+
 STEPS = [
     "Parsing GPX",
     "Fetching terrain tiles",
@@ -32,9 +36,6 @@ RESOLUTIONS = [
     ("240p",  240,  426),
 ]
 
-FPS      = 30
-N_FRAMES = 1800 + 180       # main animation + pan-out outro (fixed regardless of GPX)
-
 # Measured from CRF 23 test renders: (pixels per frame, bits per pixel).
 # H.264 gets more efficient per pixel at higher resolutions, so bpp is
 # interpolated on log(pixels) between these calibration points.
@@ -58,9 +59,9 @@ def video_dimensions(aspect: str, short: int, long: int):
     return short, short
 
 
-def estimate_mb(w: int, h: int):
-    """Estimated output size range in MB for the fixed ~66 s video."""
-    mb = w * h * N_FRAMES * _bits_per_pixel(w * h) / 8 / 1e6
+def estimate_mb(w: int, h: int, n_frames: int):
+    """Estimated output size range in MB for a video of n_frames frames."""
+    mb = w * h * n_frames * _bits_per_pixel(w * h) / 8 / 1e6
     return mb * 0.7, mb * 1.4
 
 
@@ -144,6 +145,16 @@ def main():
         return
     print(f"  ✓ {gpx}\n")
 
+    # Parse once up front to size the video to the activity.
+    pts        = parse_gpx(gpx)
+    dist_mi    = activity_distance_miles(pts)
+    dur_min    = activity_duration_min(pts)
+    main_secs  = video_main_seconds(dist_mi, dur_min)
+    total_secs = main_secs + OUTRO_SECONDS
+    n_frames   = round(total_secs * FPS)
+    dur_txt    = f"{dur_min:.0f} min" if dur_min is not None else "unknown duration"
+    print(f"  ✓ {dist_mi:.2f} mi · {dur_txt} → ~{total_secs:.0f} s video")
+
     # ── 2. Camera mode ───────────────────────────────────────────────────────
     cam = ask_two(root, "Camera Mode",
                   "Which camera style?",
@@ -167,12 +178,12 @@ def main():
     res_options = []
     for tier, short, long in RESOLUTIONS:
         w, h = video_dimensions(aspect, short, long)
-        lo, hi = estimate_mb(w, h)
+        lo, hi = estimate_mb(w, h, n_frames)
         est = f"est. {lo:.0f}–{hi:.0f} MB" if lo >= 1 else "est. <1 MB"
         res_options.append((f"{tier}  ({w}×{h})", est))
 
     r_idx = ask_choice(root, "Resolution",
-                       "Which resolution?\n(estimated file size for a ~66 s video)",
+                       f"Which resolution?\n(estimated file size for a ~{total_secs:.0f} s video)",
                        res_options)
     if r_idx is None:
         print("Cancelled. Exiting.")
@@ -212,7 +223,7 @@ def main():
     process = mp.Process(
         target=pipeline_run,
         args=({"gpx_path": gpx, "camera_mode": camera_mode, "video_path": video_path,
-               "width": width, "height": height}, queue),
+               "width": width, "height": height, "video_seconds": main_secs}, queue),
         daemon=True,
     )
     process.start()
