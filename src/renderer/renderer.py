@@ -193,7 +193,6 @@ def _draw_watermark(img: Image.Image) -> Image.Image:
     pad   = int(22 * sc)
 
     # Measure text width
-    bbox  = img.crop((0, 0, 1, 1))  # dummy; use getbbox via draw
     tmp   = ImageDraw.Draw(img.copy())
     try:
         tw, th = tmp.textsize(text, font=f_wm)

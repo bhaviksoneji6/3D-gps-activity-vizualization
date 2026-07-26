@@ -229,6 +229,7 @@ def main():
     process.start()
 
     in_render = False
+    ok        = False
 
     while True:
         try:
@@ -255,6 +256,7 @@ def main():
                 if in_render:
                     print()
                 print(f"\n✓ Done!  Saved to: {data}")
+                ok = True
                 break
 
             elif msg_type == "error":
@@ -270,8 +272,9 @@ def main():
                 break
 
     process.join()
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
     mp.freeze_support()
-    main()
+    sys.exit(main() or 0)

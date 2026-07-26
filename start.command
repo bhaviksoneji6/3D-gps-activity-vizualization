@@ -14,15 +14,25 @@ else
     source .venv/bin/activate
 fi
 
-# Copy .env.example to .env if .env doesn't exist yet
-if [ ! -f ".env" ]; then
-    cp .env.example .env
-    echo ""
-    echo "⚠️  First run: add your Mapbox API key to .env before continuing."
-    echo "    File is at: $(pwd)/.env"
-    echo ""
-    open .env
-    read -p "Press Enter once you've saved your API key..."
-fi
+# No API keys needed — terrain (AWS) and imagery (ESRI) are both keyless.
 
 TK_SILENCE_DEPRECATION=1 python3 main.py
+status=$?
+
+# On success, auto-close this Terminal window. On error, leave it open so the
+# message stays readable. Targets only the window running this script (by tty).
+if [ "$status" -eq 0 ]; then
+    my_tty="$(tty)"
+    /usr/bin/osascript >/dev/null 2>&1 <<OSA &
+tell application "Terminal"
+    repeat with w in windows
+        try
+            if (tty of selected tab of w) is "$my_tty" then
+                close w saving no
+                exit repeat
+            end if
+        end try
+    end repeat
+end tell
+OSA
+fi
