@@ -135,8 +135,8 @@ def ask_list(root, title, question, items, default_idx=0):
     d.title(title)
     d.grab_set()
 
-    tk.Label(d, text=question, font=("Helvetica Neue", 13),
-             padx=24, pady=(18, 8)).pack(anchor="w")
+    tk.Label(d, text=question, font=("Helvetica Neue", 13)).pack(
+        anchor="w", padx=24, pady=(18, 8))
 
     frame = tk.Frame(d)
     frame.pack(padx=24, fill="both", expand=True)
