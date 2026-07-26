@@ -22,6 +22,9 @@ output/*.mp4
 output/*.avi
 output/*.mov
 
+# Cached map/terrain tiles (separate from output/)
+.tilecache/
+
 # macOS
 .DS_Store
 

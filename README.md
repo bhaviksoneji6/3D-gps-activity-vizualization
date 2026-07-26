@@ -10,7 +10,9 @@ marker, and an automatic pan-out ending.
 ## Requirements
 
 - Python 3.9+ (macOS — the GUI dialogs and fonts are macOS-specific)
-- A free [Mapbox API key](https://mapbox.com) (for terrain elevation tiles)
+- **No API keys required.** Terrain comes from AWS Terrain Tiles and imagery from
+  ESRI World Imagery, both keyless. (A Mapbox key is optional — only needed if you
+  switch `TERRAIN_SOURCE`/`SATELLITE_SOURCE` to Mapbox in `src/terrain/fetcher.py`.)
 
 ffmpeg is bundled via `imageio-ffmpeg`; no separate install needed.
 
@@ -20,8 +22,6 @@ ffmpeg is bundled via `imageio-ffmpeg`; no separate install needed.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-# Edit .env and add your MAPBOX_API_KEY
 ```
 
 ## Run
@@ -100,8 +100,14 @@ Typical file sizes per 60 s of video (varies with route scenery):
 
 | Data | Source |
 |------|--------|
-| Terrain elevation | [Mapbox Terrain-RGB](https://docs.mapbox.com/data/tilesets/reference/mapbox-terrain-rgb-v1/) (zoom 14) |
-| Satellite imagery | [ESRI World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) (zoom 17, ~1.2 m/px); Mapbox Satellite (zoom 15) available as a fallback via `SATELLITE_SOURCE` in `src/terrain/fetcher.py` |
+| Terrain elevation | [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Terrarium, keyless, up to zoom 15); Mapbox Terrain-RGB available as a fallback |
+| Satellite imagery | [ESRI World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) (keyless, up to zoom 19, ~0.3 m/px); Mapbox Satellite available as a fallback |
+
+Zoom is **adaptive**: the pipeline picks the highest zoom that keeps the stitched
+texture under the GPU limit and tile count bounded, so short routes render sharper
+(up to z19 imagery / z15 terrain) while very long routes automatically step down to
+stay within budget. Fetched tiles are cached under `.tilecache/` (gitignored), so
+re-renders and overlapping activities hit no network.
 
 ## Project Structure
 
