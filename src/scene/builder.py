@@ -3,6 +3,33 @@ import pyvista as pv
 from typing import List, Tuple, Optional
 
 
+# ── atmosphere ────────────────────────────────────────────────────────────────
+# Dusk sky: the background is a vertical gradient and the terrain's outer margin
+# fades to the horizon color, so the map dissolves into the sky instead of
+# ending at a hard edge against black. The fade colour matches the gradient
+# bottom so the two blend seamlessly.
+HORIZON_RGB   = (28, 40, 64)          # 0–255, terrain edge fades toward this
+SKY_BOTTOM    = (0.11, 0.15, 0.25)    # 0–1, gradient at the horizon (≈ HORIZON_RGB)
+SKY_TOP       = (0.03, 0.05, 0.11)    # 0–1, gradient overhead
+EDGE_FADE_BAND = 0.12                 # fraction of each side that fades out
+
+
+def fade_texture_edges(img: np.ndarray, target=HORIZON_RGB,
+                       band: float = EDGE_FADE_BAND) -> np.ndarray:
+    """
+    Blend the outer border of the satellite texture toward the horizon colour so
+    the terrain edge melts into the sky. Only the padding margin beyond the route
+    is affected; the interior (the actual track) is untouched.
+    """
+    h, w = img.shape[:2]
+    def ramp(n):
+        t = np.linspace(0.0, 1.0, n)
+        return np.clip(np.minimum(t, 1.0 - t) / band, 0.0, 1.0)
+    m = np.minimum(ramp(h)[:, None], ramp(w)[None, :])[:, :, None]   # 1 interior → 0 edge
+    tgt = np.array(target, dtype=float)[None, None, :]
+    return (img.astype(float) * m + tgt * (1.0 - m)).astype(np.uint8)
+
+
 def build_ghost_track(
     coords: List[Tuple[float, float, float]],
     tube_radius: float = 5.0,
@@ -131,5 +158,5 @@ def assemble_scene_video(
 
     plotter.add_mesh(ghost_track, color="white", opacity=0.15, name="ghost")
     plotter.add_mesh(end_marker, color="red")
-    plotter.set_background("black")
+    plotter.set_background(SKY_BOTTOM, top=SKY_TOP)
     return plotter

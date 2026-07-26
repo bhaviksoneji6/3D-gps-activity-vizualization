@@ -70,7 +70,8 @@ The pipeline then runs in the terminal with step-by-step progress and a render E
 
 ## What's in the video
 
-- Satellite-textured 3D terrain (1.2× vertical exaggeration)
+- Satellite-textured 3D terrain (1.2× vertical exaggeration) set against a dusk
+  sky gradient, with the terrain's outer margin fading into the horizon
 - Progressive trail that grows along the route (plasma color ramp), with a faint
   "ghost" of the full track and an end marker
 - Animated arrow marker pointing in the direction of travel

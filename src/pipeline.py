@@ -22,7 +22,7 @@ def run(config: dict, queue):
         from src.terrain.fetcher import fetch_terrain, fetch_satellite_texture
         from src.terrain.mesh import build_terrain_mesh
         from src.scene.builder import (build_ghost_track, build_end_marker,
-                                        assemble_scene_video)
+                                        assemble_scene_video, fade_texture_edges)
         from src.scene.camera import chase_camera_frames, first_person_frames
         from src.gpx.pacing import elapsed_seconds, sample_fractions, FPS, video_main_seconds
         from src.gpx.pacing import activity_distance_miles, activity_duration_min
@@ -84,6 +84,8 @@ def run(config: dict, queue):
             lat_grid.min(), lat_grid.max(),
             lon_grid.min(), lon_grid.max(),
         )
+        # Melt the terrain's outer margin into the dusk horizon colour.
+        texture_img = fade_texture_edges(texture_img)
 
         # ── original-point HUD arrays (sampled onto frames below) ──────────────
         seg_dists = [0.0]
