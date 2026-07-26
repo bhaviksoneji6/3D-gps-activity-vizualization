@@ -11,6 +11,9 @@ build/
 # Environment — add your own API keys here, never commit this
 .env
 
+# Saved Strava OAuth token (read-only refresh token)
+.strava_token.json
+
 # Personal GPX activity files
 activity-gpx-inputs/
 

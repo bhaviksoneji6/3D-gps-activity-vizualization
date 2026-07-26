@@ -127,23 +127,109 @@ def ask_two(root, title, question, btn_a, btn_b):
     return choice[0]
 
 
+def ask_list(root, title, question, items, default_idx=0):
+    """Scrollable single-select list (for long lists like Strava activities).
+    Returns the selected index, or None if cancelled."""
+    choice = [None]
+    d = tk.Toplevel(root)
+    d.title(title)
+    d.grab_set()
+
+    tk.Label(d, text=question, font=("Helvetica Neue", 13),
+             padx=24, pady=(18, 8)).pack(anchor="w")
+
+    frame = tk.Frame(d)
+    frame.pack(padx=24, fill="both", expand=True)
+    sb = tk.Scrollbar(frame)
+    sb.pack(side="right", fill="y")
+    lb = tk.Listbox(frame, width=56, height=min(14, max(3, len(items))),
+                    font=("Helvetica Neue", 12), yscrollcommand=sb.set,
+                    activestyle="none")
+    for it in items:
+        lb.insert("end", it)
+    if items:
+        lb.selection_set(default_idx)
+        lb.see(default_idx)
+    lb.pack(side="left", fill="both", expand=True)
+    sb.config(command=lb.yview)
+
+    def ok():
+        sel = lb.curselection()
+        choice[0] = sel[0] if sel else None
+        d.destroy()
+
+    lb.bind("<Double-Button-1>", lambda e: ok())
+    tk.Button(d, text="Continue", width=18, command=ok).pack(pady=(12, 18))
+    root.wait_window(d)
+    return choice[0]
+
+
+def _select_local_gpx(root):
+    print("Select your .gpx file in the dialog...")
+    gpx = filedialog.askopenfilename(
+        parent=root, title="Select a GPX file",
+        filetypes=[("GPX files", "*.gpx"), ("All files", "*.*")],
+    )
+    if gpx:
+        print(f"  ✓ {gpx}")
+    return gpx or None
+
+
+def _select_strava_activity(root):
+    from src.sources import strava
+    try:
+        print("\nConnecting to Strava...")
+        token = strava.authenticated_token()
+        print("Fetching your recent activities...")
+        activities = strava.list_activities(token, per_page=30)
+    except Exception as e:
+        print(f"\n✗ Strava error: {e}")
+        return None
+
+    if not activities:
+        print("No GPS activities found on your Strava account.")
+        return None
+
+    def row(a):
+        date = (a.get("start_date_local") or "")[:10]
+        miles = (a.get("distance") or 0) / 1609.344
+        return f"{a.get('name', '(unnamed)')}   —   {date} · {miles:.1f} mi · {a.get('type', '')}"
+
+    idx = ask_list(root, "Strava Activity", "Pick an activity to visualize:",
+                   [row(a) for a in activities])
+    if idx is None:
+        return None
+
+    print(f"Downloading “{activities[idx].get('name', '')}” from Strava...")
+    try:
+        path = strava.download_activity_gpx(token, activities[idx])
+    except Exception as e:
+        print(f"\n✗ Could not download activity: {e}")
+        return None
+    print(f"  ✓ Saved GPX: {path}")
+    return path
+
+
 def main():
     root = tk.Tk()
     root.withdraw()
 
     print("\n=== 3D GPS Visualizer ===\n")
 
-    # ── 1. GPX file ──────────────────────────────────────────────────────────
-    print("Select your .gpx file in the dialog...")
-    gpx = filedialog.askopenfilename(
-        parent=root,
-        title="Select your Strava GPX file",
-        filetypes=[("GPX files", "*.gpx"), ("All files", "*.*")],
-    )
+    # ── 1. Activity source ───────────────────────────────────────────────────
+    src = ask_choice(root, "Activity Source", "Where's the activity from?", [
+        ("Strava",          "Log in and pick a recent activity"),
+        ("Local GPX file",  "Choose a .gpx from your computer"),
+    ])
+    if src is None:
+        print("Cancelled. Exiting.")
+        return 0
+
+    gpx = _select_strava_activity(root) if src == 0 else _select_local_gpx(root)
     if not gpx:
-        print("No file selected. Exiting.")
-        return
-    print(f"  ✓ {gpx}\n")
+        print("No activity selected. Exiting.")
+        return 1
+    print()
 
     # Parse once up front to size the video to the activity.
     pts        = parse_gpx(gpx)

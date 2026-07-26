@@ -34,7 +34,9 @@ python main.py
 
 You'll be prompted (native dialogs) for:
 
-1. **GPX file** — your exported activity
+1. **Activity source**
+   - **Strava** — log in once, then pick from your recent activities (see below)
+   - **Local GPX file** — choose a `.gpx` exported from Strava, AllTrails, etc.
 2. **Camera mode**
    - **Cinematic** — elevated chase camera that adapts to terrain and sweeps around the route
    - **First-Person** — close follow camera from behind and above
@@ -45,6 +47,24 @@ You'll be prompted (native dialogs) for:
 
 The camera automatically pulls back further in 9:16 and 1:1 to keep the route
 framed, and the stats HUD scales to every aspect/resolution combination.
+
+### Connecting Strava (one-time setup)
+
+Strava has no anonymous API, so each person registers a personal API app once:
+
+1. The first time you pick **Strava**, the app opens
+   [strava.com/settings/api](https://www.strava.com/settings/api) and tells you
+   what to enter. Create an application with **Authorization Callback Domain =
+   `localhost`** (the other fields can be anything).
+2. Paste the **Client ID** and **Client Secret** it shows you back into the
+   terminal — they're saved to `.env` and never asked again.
+3. Your browser opens once to authorize **read-only** access to your activities.
+   The login is saved to `.strava_token.json` (gitignored), so later runs are
+   silent. Delete that file to disconnect, or revoke fully at Strava → Settings →
+   My Apps.
+
+Selected activities are downloaded as `.gpx` into `activity-gpx-inputs/`, so you
+keep a copy. Activities without GPS (indoor/treadmill) are skipped.
 
 ### Pacing
 
