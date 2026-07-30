@@ -129,7 +129,8 @@ def ask_two(root, title, question, btn_a, btn_b):
 
 def ask_list(root, title, question, items, default_idx=0):
     """Scrollable single-select list (for long lists like Strava activities).
-    Returns the selected index, or None if cancelled."""
+    Uses radiobuttons inside a scroll canvas — the macOS Listbox widget doesn't
+    render reliably under the Aqua theme. Returns the selected index, or None."""
     choice = [None]
     d = tk.Toplevel(root)
     d.title(title)
@@ -138,27 +139,33 @@ def ask_list(root, title, question, items, default_idx=0):
     tk.Label(d, text=question, font=("Helvetica Neue", 13)).pack(
         anchor="w", padx=24, pady=(18, 8))
 
-    frame = tk.Frame(d)
-    frame.pack(padx=24, fill="both", expand=True)
-    sb = tk.Scrollbar(frame)
+    outer  = tk.Frame(d)
+    outer.pack(padx=20, fill="both", expand=True)
+    visible_rows = min(12, max(3, len(items)))
+    canvas = tk.Canvas(outer, highlightthickness=0,
+                       width=560, height=visible_rows * 30)
+    sb     = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+    inner  = tk.Frame(canvas)
+    inner.bind("<Configure>",
+               lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.create_window((0, 0), window=inner, anchor="nw")
+    canvas.configure(yscrollcommand=sb.set)
+    canvas.pack(side="left", fill="both", expand=True)
     sb.pack(side="right", fill="y")
-    lb = tk.Listbox(frame, width=56, height=min(14, max(3, len(items))),
-                    font=("Helvetica Neue", 12), yscrollcommand=sb.set,
-                    activestyle="none")
-    for it in items:
-        lb.insert("end", it)
-    if items:
-        lb.selection_set(default_idx)
-        lb.see(default_idx)
-    lb.pack(side="left", fill="both", expand=True)
-    sb.config(command=lb.yview)
+    # trackpad / wheel scrolling
+    canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 3), "units"))
+
+    var = tk.IntVar(value=default_idx)
+    for i, it in enumerate(items):
+        tk.Radiobutton(inner, text=it, variable=var, value=i,
+                       anchor="w", justify="left",
+                       font=("Helvetica Neue", 12)).pack(fill="x", anchor="w")
 
     def ok():
-        sel = lb.curselection()
-        choice[0] = sel[0] if sel else None
+        canvas.unbind_all("<MouseWheel>")
+        choice[0] = var.get()
         d.destroy()
 
-    lb.bind("<Double-Button-1>", lambda e: ok())
     tk.Button(d, text="Continue", width=18, command=ok).pack(pady=(12, 18))
     root.wait_window(d)
     return choice[0]
@@ -189,6 +196,7 @@ def _select_strava_activity(root):
     if not activities:
         print("No GPS activities found on your Strava account.")
         return None
+    print(f"  ✓ {len(activities)} activities loaded")
 
     def row(a):
         date = (a.get("start_date_local") or "")[:10]
