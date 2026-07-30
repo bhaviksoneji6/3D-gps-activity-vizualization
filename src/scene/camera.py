@@ -110,37 +110,62 @@ def _build_outro_frames(
     last_frame: Tuple[Tuple, Tuple, Tuple],
     n_flyout: int = 120,
     n_hold: int = 60,
-    fit_scale: float = 1.0,
+    frame_aspect: float = 16.0 / 9.0,
 ) -> List[Tuple[Tuple, Tuple, Tuple]]:
     """
-    Pan-out sequence appended after the main animation.
-    Camera eases from its final chase position to a bird's-eye overview
-    showing the entire route, then holds.
+    Pan-out sequence appended after the main animation. The camera eases from its
+    final chase position to a top-down overview of the whole route, then holds.
+
+    The overview is oriented for reading rather than geography: the route's long
+    axis is laid along the frame's long edge, and the START point is placed at the
+    bottom-left region — start on the left for wide frames, start at the bottom for
+    tall ones — so the route reads left-to-right / bottom-to-top.
     """
     pts = np.array(coords, dtype=float)
-
-    x_min, y_min = pts[:, :2].min(axis=0)
-    x_max, y_max = pts[:, :2].max(axis=0)
+    xy  = pts[:, :2]
     z_max = float(pts[:, 2].max())
 
-    cx = (x_min + x_max) / 2.0
-    cy = (y_min + y_max) / 2.0
-    extent = max(x_max - x_min, y_max - y_min)
+    x_min, y_min = xy.min(axis=0)
+    x_max, y_max = xy.max(axis=0)
+    center = np.array([(x_min + x_max) / 2.0, (y_min + y_max) / 2.0])
 
-    # Height to fit full route in 45° FOV with some margin.
-    # fit_scale > 1 for narrow frames (9:16, 1:1) whose horizontal FOV is smaller.
-    overview_z = z_max + extent * 1.5 * fit_scale
-    overview_cam   = np.array([cx, cy, overview_z])
-    overview_focal = np.array([cx, cy, z_max])
+    # Long axis of the route via PCA (robust for both point-to-point and loops).
+    d = xy - xy.mean(axis=0)
+    evals, evecs = np.linalg.eigh(d.T @ d)
+    major = evecs[:, int(np.argmax(evals))]
+    major = major / (np.linalg.norm(major) or 1.0)
+    minor = np.array([-major[1], major[0]])          # perpendicular
+
+    wide = frame_aspect >= 1.0
+    # Sign the long axis so the start is at the beginning of the reading axis
+    # (left for wide frames, bottom for tall frames).
+    if np.dot(xy[0] - center, major) > 0:
+        major, minor = -major, -minor
+
+    # Camera up-vector for a straight-down view (screen-right = (up_y, -up_x)):
+    #   wide → long axis horizontal (screen-right = major)
+    #   tall → long axis vertical   (screen-up   = major)
+    up_xy = np.array([-major[1], major[0]]) if wide else major
+
+    # Fit both route dimensions to the frame's FOV; the binding one sets height.
+    span_major = float(np.ptp(d @ major))
+    span_minor = float(np.ptp(d @ minor))
+    if wide:
+        need = max(span_minor, span_major / frame_aspect)
+    else:
+        need = max(span_major, span_minor / frame_aspect)
+    overview_z = z_max + need * 2.0   # fit the binding dimension with ~20% margin
+
+    overview_cam   = np.array([center[0], center[1], overview_z])
+    overview_focal = np.array([center[0], center[1], z_max])
+    up_end         = np.array([up_xy[0], up_xy[1], 0.0])
+    up_end         = up_end / (np.linalg.norm(up_end) or 1.0)
 
     last_cam   = np.array(last_frame[0])
     last_focal = np.array(last_frame[1])
-
-    # The overview looks straight down, where up=(0,0,1) is parallel to the view
-    # direction — a degenerate camera basis that renders black. Blend to a
-    # north-up vector as the camera tilts vertical.
-    up_start = np.array([0.0, 0.0, 1.0])
-    up_end   = np.array([0.0, 1.0, 0.0])
+    # The chase camera's up is ~vertical; blend to the oriented horizontal up so
+    # the basis never goes degenerate as the camera tilts straight down.
+    up_start = np.array(last_frame[2], dtype=float)
 
     frames = []
     for i in range(n_flyout):
@@ -149,10 +174,10 @@ def _build_outro_frames(
         cam   = last_cam   + (overview_cam   - last_cam)   * ease
         focal = last_focal + (overview_focal - last_focal) * ease
         up    = up_start + (up_end - up_start) * ease
-        up    = up / np.linalg.norm(up)
+        up    = up / (np.linalg.norm(up) or 1.0)
         frames.append((tuple(cam), tuple(focal), tuple(up)))
 
-    frames += [(tuple(overview_cam), tuple(overview_focal), (0.0, 1.0, 0.0))] * n_hold
+    frames += [(tuple(overview_cam), tuple(overview_focal), tuple(up_end))] * n_hold
     return frames
 
 
@@ -163,8 +188,8 @@ def _aspect_factors(frame_aspect: float) -> Tuple[float, float]:
 
     chase_scale — sqrt compromise: pulls the chase camera back enough that the
     route isn't constantly cropped, without making it feel distant.
-    fit_scale   — full geometric factor: the outro must fit the whole route
-    horizontally, so no compromise there.
+    fit_scale   — full geometric factor, used to tighten the chase look-ahead in
+    narrow frames so the marker stays on screen.
     """
     wide = 16.0 / 9.0
     ratio = wide / frame_aspect
@@ -251,7 +276,7 @@ def chase_camera_frames(
     frames = _smooth_camera_frames(frames, window=max(5, round(len(frames) * 0.045)))
 
     # Outro pan-out
-    frames += _build_outro_frames(coords, frames[-1], fit_scale=fit_scale)
+    frames += _build_outro_frames(coords, frames[-1], frame_aspect=frame_aspect)
     return frames
 
 
@@ -292,5 +317,5 @@ def first_person_frames(
     frames = _smooth_camera_frames(frames, window=max(5, round(len(frames) * 0.023)))
 
     # Outro pan-out
-    frames += _build_outro_frames(coords, frames[-1], fit_scale=fit_scale)
+    frames += _build_outro_frames(coords, frames[-1], frame_aspect=frame_aspect)
     return frames
